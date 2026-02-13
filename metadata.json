@@ -1,0 +1,5 @@
+{
+  "name": "Consensus",
+  "description": "A daily Reddit-native social prediction game where users vote on their beliefs and predict the community's collective choice. Earn points, build streaks, and become a community oracle.",
+  "requestFramePermissions": []
+}
