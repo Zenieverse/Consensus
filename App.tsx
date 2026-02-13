@@ -10,6 +10,7 @@ import PredictionSelector from './components/PredictionSelector';
 import RevealResults from './components/RevealResults';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import UGCModal from './components/UGCModal';
+import CommentsSection from './components/CommentsSection';
 
 // Declare confetti from global window object
 declare const confetti: any;
@@ -25,8 +26,9 @@ const App: React.FC = () => {
   const [userStats, setUserStats] = useState<UserStats>(StorageService.getUserStats('current_user'));
   const [isUGCModalOpen, setIsUGCModalOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState('14:22:05');
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
-  // Load submissions and trigger celebration if viewing a correct prediction
+  // Load submissions and check status
   useEffect(() => {
     const subs = StorageService.getSubmissions();
     const existing = subs.find(s => s.promptId === activePrompt.id);
@@ -37,32 +39,29 @@ const App: React.FC = () => {
     }
   }, [activePrompt.id]);
 
-  // Daily AI Refresh (Optional logic to simulate dynamic daily content)
+  // Show how to play to first-time users
   useEffect(() => {
-    const refreshPrompt = async () => {
-      // In a real app, we'd fetch the day's prompt from a database.
-      // Here, we'll occasionally "spice it up" with Gemini if it's a new day.
-      const today = new Date().toISOString().split('T')[0];
-      if (activePrompt.day !== today) {
-        try {
-          const aiPrompt = await GeminiService.generateDailyPrompt();
-          if (aiPrompt.question) {
-            setActivePrompt(prev => ({
-              ...prev,
-              day: today,
-              question: aiPrompt.question!,
-              options: aiPrompt.options!,
-            }));
-          }
-        } catch (err) {
-          console.error("Gemini prompt refresh failed", err);
-        }
-      }
-    };
-    refreshPrompt();
+    const hasSeen = localStorage.getItem('consensus_onboarding_seen');
+    if (!hasSeen) {
+      setShowHowToPlay(true);
+      localStorage.setItem('consensus_onboarding_seen', 'true');
+    }
   }, []);
 
-  // Celebration Logic
+  // Timer simulation
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLeft(prev => {
+        const [h, m, s] = prev.split(':').map(Number);
+        let ns = s - 1, nm = m, nh = h;
+        if (ns < 0) { ns = 59; nm -= 1; }
+        if (nm < 0) { nm = 59; nh -= 1; }
+        return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}:${String(ns).padStart(2, '0')}`;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const triggerConfetti = () => {
     confetti({
       particleCount: 150,
@@ -72,33 +71,21 @@ const App: React.FC = () => {
     });
   };
 
-  useEffect(() => {
-    if (currentView === GameView.REVEAL) {
-      const subs = StorageService.getSubmissions();
-      const pastSub = subs.find(s => s.promptId === pastPrompt.id);
-      
-      // Determine winner of past prompt
-      let winnerIdx = -1;
-      let maxVotes = -1;
-      Object.entries(pastPrompt.results || {}).forEach(([idx, count]) => {
-        if ((count as number) > maxVotes) {
-          maxVotes = count as number;
-          winnerIdx = parseInt(idx);
-        }
-      });
-
-      if (pastSub && pastSub.predictedTopOption === winnerIdx) {
-        setTimeout(triggerConfetti, 500);
-      }
+  const handleShare = async () => {
+    const text = `Can Reddit agree... for once? I just predicted today's Consensus on ${activePrompt.question}. Play with me!`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Consensus Game', text, url: window.location.href });
+      } catch (err) { console.log('Error sharing', err); }
+    } else {
+      navigator.clipboard.writeText(text);
+      alert('Link copied to clipboard!');
     }
-  }, [currentView, pastPrompt]);
+  };
 
   const handleSubmit = async () => {
     if (userVote === null || userPrediction === null) return;
-    
     setIsLocking(true);
-    
-    // Simulate server "locking" delay for dramatic effect
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     const submission: UserSubmission = {
@@ -113,86 +100,78 @@ const App: React.FC = () => {
     setHasSubmitted(true);
     setIsLocking(false);
 
+    // Update stats logic
     const newStats = { ...userStats };
     newStats.predictionsMade += 1;
+    newStats.totalScore += 2; // Participation points
     StorageService.updateUserStats(newStats);
     setUserStats(newStats);
     
-    // Initial celebration for participating
-    confetti({
-      particleCount: 50,
-      spread: 60,
-      origin: { y: 0.8 },
-      colors: ['#FF4500', '#FFFFFF']
-    });
+    triggerConfetti();
   };
 
-  // Added handleUGCSubmit function to process user prompt submissions
   const handleUGCSubmit = (question: string, options: string[]) => {
-    const newPrompt: UGCPrompt = {
+    StorageService.submitUGC({
       id: `ugc_${Date.now()}`,
-      author: 'current_user',
+      author: 'u/current_user',
       question,
       options,
       status: 'pending'
-    };
-    StorageService.submitUGC(newPrompt);
+    });
+    alert("Prompt submitted! The community will see it soon.");
     setIsUGCModalOpen(false);
   };
 
   const NavButton = ({ view, icon, label }: { view: GameView, icon: string, label: string }) => (
     <button
       onClick={() => setCurrentView(view)}
-      className={`flex flex-col items-center justify-center py-2 px-6 transition-all duration-300 relative ${
-        currentView === view ? 'text-reddit-orange scale-110' : 'text-gray-400 hover:text-gray-600'
+      className={`flex flex-col items-center justify-center py-2 px-6 transition-all duration-300 relative rounded-xl ${
+        currentView === view ? 'text-reddit-orange bg-orange-50/50' : 'text-gray-400 hover:text-gray-600'
       }`}
     >
       <i className={`fa-solid ${icon} text-xl mb-1`}></i>
       <span className="text-[9px] font-black uppercase tracking-wider">{label}</span>
       {currentView === view && (
-        <span className="absolute -top-1 w-1 h-1 bg-reddit-orange rounded-full animate-ping"></span>
+        <span className="absolute bottom-1 w-1 h-1 bg-reddit-orange rounded-full"></span>
       )}
     </button>
   );
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center pb-24">
-      {/* Dynamic Header */}
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center pb-32">
+      {/* Header */}
       <header className="w-full bg-white border-b border-gray-200 sticky top-0 z-40 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-reddit-orange rounded-xl flex items-center justify-center text-white text-lg shadow-lg shadow-orange-100 transform -rotate-3">
+          <div className="w-10 h-10 bg-reddit-orange rounded-xl flex items-center justify-center text-white text-lg shadow-lg shadow-orange-100 transform -rotate-3 hover:rotate-0 transition-transform cursor-pointer">
              <i className="fa-solid fa-brain"></i>
           </div>
           <div>
             <h1 className="font-black text-lg tracking-tighter text-gray-900 leading-none">CONSENSUS</h1>
-            <p className="text-[9px] text-reddit-orange font-black uppercase tracking-widest">Oracle Lab</p>
+            <p className="text-[9px] text-reddit-orange font-black uppercase tracking-widest">Oracle Lab v1.0</p>
           </div>
         </div>
         
         <div className="flex items-center gap-4">
-           <div className="hidden md:flex flex-col items-end">
-              <span className="text-[9px] font-black text-gray-400 uppercase">Daily Streak</span>
-              <div className="flex items-center gap-1 text-orange-600 font-black text-sm">
-                <i className="fa-solid fa-fire-flame-curved"></i>
-                {userStats.currentStreak}
-              </div>
+           <div className="flex flex-col items-end">
+              <span className="text-[9px] font-black text-gray-400 uppercase">Points</span>
+              <p className="font-black text-gray-900 leading-none">{userStats.totalScore}</p>
            </div>
            <button 
-             onClick={() => setIsUGCModalOpen(true)}
-             className="w-10 h-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-white hover:shadow-md transition-all active:scale-95"
+             onClick={() => setShowHowToPlay(true)}
+             className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors"
            >
-             <i className="fa-solid fa-plus"></i>
+             <i className="fa-solid fa-question text-xs"></i>
            </button>
         </div>
       </header>
 
-      {/* Main Game Container */}
+      {/* Main Content Area */}
       <main className="w-full max-w-lg px-4 pt-8">
         {currentView === GameView.VOTING && (
           <div className="space-y-6">
             <PromptCard prompt={activePrompt} dayNumber={43} />
             
-            <div className={`bg-white p-6 rounded-3xl shadow-xl border border-gray-200 transition-all ${isLocking ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+            <div className={`bg-white p-6 rounded-3xl shadow-xl border border-gray-200 transition-all ${isLocking ? 'opacity-50 pointer-events-none' : ''}`}>
               <OptionGrid 
                 options={activePrompt.options} 
                 selectedOption={userVote} 
@@ -221,69 +200,68 @@ const App: React.FC = () => {
                 >
                   {isLocking ? (
                     <span className="flex items-center justify-center gap-2">
-                       <i className="fa-solid fa-circle-notch animate-spin"></i> LOCKING...
+                       <i className="fa-solid fa-circle-notch animate-spin"></i> CALCULATING...
                     </span>
                   ) : (
-                    <>
-                      <span className="relative z-10">LOCK IN PREDICTION</span>
-                      <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                    </>
+                    "LOCK IN PREDICTION"
                   )}
                 </button>
               ) : (
-                <div className="text-center p-6 bg-orange-50 rounded-2xl border-2 border-reddit-orange border-dashed animate-pulse-soft">
-                  <div className="w-12 h-12 bg-reddit-orange text-white rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg">
-                    <i className="fa-solid fa-lock"></i>
+                <div className="space-y-4">
+                  <div className="text-center p-6 bg-orange-50 rounded-2xl border-2 border-reddit-orange border-dashed animate-pulse-soft">
+                    <p className="font-black text-gray-900 mb-1 tracking-tight">VOTE RECORDED 🔒</p>
+                    <p className="text-xs text-gray-600 font-medium">
+                      Results reveal in <span className="text-reddit-orange font-black">{timeLeft}</span>.
+                    </p>
                   </div>
-                  <p className="font-black text-gray-900 mb-1 tracking-tight">VOTE RECORDED</p>
-                  <p className="text-xs text-gray-600 font-medium">
-                    Consensus reveals in <span className="text-reddit-orange font-black">{timeLeft}</span>.
-                  </p>
+                  <button 
+                    onClick={handleShare}
+                    className="w-full py-3 bg-white border-2 border-gray-100 rounded-xl font-bold text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2 transition-all active:scale-95"
+                  >
+                    <i className="fa-solid fa-share-nodes"></i> Invite Challengers
+                  </button>
                 </div>
               )}
             </div>
             
-            {!hasSubmitted && (
-               <div className="text-center py-4 text-[11px] text-gray-400 font-bold uppercase tracking-widest">
-                  <i className="fa-solid fa-shield-halved mr-1"></i> Votes are anonymous and permanent
-               </div>
-            )}
+            <CommentsSection comments={activePrompt.comments || []} />
           </div>
         )}
 
         {currentView === GameView.REVEAL && (
-          <RevealResults 
-            prompt={pastPrompt} 
-            userSubmission={StorageService.getSubmissions().find(s => s.promptId === pastPrompt.id)} 
-          />
+          <div className="space-y-6">
+            <RevealResults 
+              prompt={pastPrompt} 
+              userSubmission={StorageService.getSubmissions().find(s => s.promptId === pastPrompt.id)} 
+            />
+            <CommentsSection comments={pastPrompt.comments || []} />
+          </div>
         )}
 
         {currentView === GameView.LEADERBOARD && (
           <div className="space-y-6">
             <div className="bg-gradient-to-br from-reddit-orange to-orange-600 p-8 rounded-3xl shadow-2xl text-white relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4">
-                 <i className="fa-solid fa-award text-9xl"></i>
-              </div>
-              <h2 className="text-xl font-black mb-6 flex items-center gap-2">
-                 <i className="fa-solid fa-user-astronaut"></i> Your Oracle Profile
+              <h2 className="text-xl font-black mb-6 flex items-center gap-2 relative z-10">
+                 <i className="fa-solid fa-user-astronaut"></i> Your Oracle Stats
               </h2>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-4 relative z-10">
                 <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Score</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">XP</p>
                   <p className="text-2xl font-black">{userStats.totalScore}</p>
                 </div>
                 <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Accuracy</p>
-                  <p className="text-2xl font-black">
-                    {userStats.predictionsMade > 0 
-                      ? Math.round((userStats.correctPredictions / userStats.predictionsMade) * 100) 
-                      : 0}%
-                  </p>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Predictions</p>
+                  <p className="text-2xl font-black">{userStats.predictionsMade}</p>
                 </div>
                 <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Rank</p>
-                  <p className="text-2xl font-black">#4.2k</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Streak</p>
+                  <p className="text-2xl font-black flex items-center gap-1">
+                    {userStats.currentStreak} <i className="fa-solid fa-fire text-sm text-yellow-300"></i>
+                  </p>
                 </div>
+              </div>
+              <div className="absolute -bottom-4 -right-4 opacity-10 transform rotate-12">
+                 <i className="fa-solid fa-award text-9xl"></i>
               </div>
             </div>
             <LeaderboardPanel />
@@ -291,16 +269,48 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Modern Fixed Bottom Nav */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-gray-200 px-2 py-2 flex items-center gap-2 z-50 rounded-2xl shadow-2xl">
+      {/* Modern Navigation */}
+      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-xl border border-gray-200 p-1.5 flex items-center gap-1 z-50 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] ring-1 ring-black/5">
         <NavButton view={GameView.VOTING} icon="fa-bolt-lightning" label="Predict" />
-        <div className="w-px h-8 bg-gray-200 mx-1"></div>
+        <div className="w-px h-10 bg-gray-100 mx-1"></div>
         <NavButton view={GameView.REVEAL} icon="fa-chart-simple" label="Results" />
-        <div className="w-px h-8 bg-gray-200 mx-1"></div>
-        <NavButton view={GameView.LEADERBOARD} icon="fa-trophy" label="Ranks" />
+        <div className="w-px h-10 bg-gray-100 mx-1"></div>
+        <NavButton view={GameView.LEADERBOARD} icon="fa-ranking-star" label="Ranks" />
       </nav>
 
-      {/* Modals */}
+      {/* Onboarding / About Modal */}
+      {showHowToPlay && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+          <div className="bg-white rounded-[32px] w-full max-w-sm p-8 text-center animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-orange-100 text-reddit-orange rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">
+               <i className="fa-solid fa-lightbulb"></i>
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">How to play</h2>
+            <div className="space-y-6 text-left mb-8">
+               <div className="flex gap-4">
+                  <span className="w-6 h-6 rounded-full bg-reddit-orange text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+                  <p className="text-sm text-gray-600 font-medium">Cast your personal vote on today's daily question.</p>
+               </div>
+               <div className="flex gap-4">
+                  <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
+                  <p className="text-sm text-gray-600 font-medium">Predict which option the Reddit community will pick most.</p>
+               </div>
+               <div className="flex gap-4">
+                  <span className="w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
+                  <p className="text-sm text-gray-600 font-medium">Earn Oracle points and build streaks for accurate predictions!</p>
+               </div>
+            </div>
+            <button 
+              onClick={() => setShowHowToPlay(false)}
+              className="w-full py-4 bg-reddit-orange text-white rounded-2xl font-black shadow-lg shadow-orange-200 active:scale-95 transition-transform"
+            >
+              GOT IT, LET'S PLAY!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* UGC Modal */}
       <UGCModal 
         isOpen={isUGCModalOpen} 
         onClose={() => setIsUGCModalOpen(false)} 

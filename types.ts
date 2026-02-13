@@ -1,4 +1,12 @@
 
+export interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  upvotes: number;
+  timestamp: number;
+}
+
 export interface Prompt {
   id: string;
   day: string; // YYYY-MM-DD
@@ -7,6 +15,7 @@ export interface Prompt {
   totalVotes?: number;
   results?: Record<string, number>; // option index -> count
   status: 'active' | 'closed';
+  comments?: Comment[];
 }
 
 export interface UserSubmission {
@@ -15,6 +24,7 @@ export interface UserSubmission {
   voteOption: number;
   predictedTopOption: number;
   timestamp: number;
+  scoreEarned?: number;
 }
 
 export interface UserStats {
@@ -39,5 +49,6 @@ export enum GameView {
   VOTING = 'VOTING',
   REVEAL = 'REVEAL',
   LEADERBOARD = 'LEADERBOARD',
-  UGC = 'UGC'
+  UGC = 'UGC',
+  ABOUT = 'ABOUT'
 }
