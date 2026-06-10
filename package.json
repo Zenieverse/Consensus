@@ -11,7 +11,7 @@
   "dependencies": {
     "react-dom": "^19.2.4",
     "react": "^19.2.4",
-    "@google/genai": "^0.2.1",
+    "@google/genai": "*",
     "framer-motion": "^11.0.0"
   },
   "devDependencies": {
