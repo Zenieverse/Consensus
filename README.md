@@ -8,6 +8,8 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/ba0ecf7c-ac93-42f7-a279-14c8348113e1
 
+or https://consensus-764082783379.us-west1.run.app
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
